@@ -839,9 +839,368 @@ async def discord_raw_api(
 
 
 # ----------------------------------------------------------------------
+# 7. BOT ADDITION, CONFIGURATION & EMBEDDED AUTOMATION TOOLS
+# ----------------------------------------------------------------------
+
+import webbrowser
+
+BOT_CATALOG: Dict[str, Dict[str, Any]] = {
+    "ticket_tool": {
+        "id": "557628352828014614",
+        "name": "Ticket Tool",
+        "purpose": "Επαγγελματικό σύστημα Support Tickets με Web Dashboard",
+        "default_command": "$setup",
+        "recommended_channel": "📩・άνοιγμα-ticket",
+        "permissions": 8,
+    },
+    "pingcord": {
+        "id": "581096794776109066",
+        "name": "Pingcord",
+        "purpose": "Αυτόματες ειδοποιήσεις για TikTok Live, TikTok Videos, YouTube & Twitch",
+        "default_command": "!pingcord",
+        "recommended_channel": "🔴・live-alerts",
+        "permissions": 277025508416,
+    },
+    "carl_bot": {
+        "id": "235148962103951360",
+        "name": "Carl-bot",
+        "purpose": "Προηγμένο Moderation, Reaction Roles & Server Logs",
+        "default_command": "!help",
+        "recommended_channel": "🚨・mod-logs",
+        "permissions": 8,
+    },
+    "giveaway_bot": {
+        "id": "396434947269197824",
+        "name": "GiveawayBot",
+        "purpose": "Αυτόματοι διαγωνισμοί & Giveaways για τα μέλη και τα Lives",
+        "default_command": "!gcreate",
+        "recommended_channel": "💬・γενική-συζήτηση",
+        "permissions": 277025508416,
+    },
+    "mee6": {
+        "id": "159985870458322944",
+        "name": "MEE6",
+        "purpose": "Leveling, XP, Auto-moderation & Music",
+        "default_command": "!levels",
+        "recommended_channel": "🤖・bot-εντολές",
+        "permissions": 8,
+    },
+    "probot": {
+        "id": "282859044593598464",
+        "name": "ProBot",
+        "purpose": "Custom Welcome Images, Auto-roles, Levels & Protection",
+        "default_command": "#help",
+        "recommended_channel": "🤖・bot-εντολές",
+        "permissions": 8,
+    },
+    "jockie_music": {
+        "id": "411916947773587456",
+        "name": "Jockie Music",
+        "purpose": "Αναπαραγωγή μουσικής σε Voice Channels",
+        "default_command": "m!play",
+        "recommended_channel": "🤖・bot-εντολές",
+        "permissions": 3148800,
+    },
+}
+
+
+@server.tool()
+async def discord_list_bot_catalog() -> str:
+    """Lists popular Discord bots available for instant addition and automated setup.
+    Includes bots for Tickets, Live Streaming Announcements (TikTok/YouTube), Moderation, Giveaways, and Music.
+    """
+    catalog_list = []
+    for key, info in BOT_CATALOG.items():
+        catalog_list.append({
+            "key": key,
+            "bot_name": info["name"],
+            "client_id": info["id"],
+            "purpose": info["purpose"],
+            "default_command": info["default_command"],
+            "recommended_channel": info["recommended_channel"],
+        })
+    return json.dumps({"status": "success", "bots": catalog_list}, indent=2, ensure_ascii=False)
+
+
+@server.tool()
+async def discord_add_bot(
+    bot_name_or_id: str,
+    guild_id: Optional[str] = None,
+    user_token: Optional[str] = None,
+    open_browser: bool = True,
+) -> str:
+    """Adds a Discord bot to the server or generates its 1-Click invite URL.
+    - bot_name_or_id: Name from catalog (e.g. 'ticket_tool', 'pingcord', 'carl_bot', 'giveaway_bot') or raw Client ID
+    - guild_id: Target server ID (auto-resolved if omitted)
+    - user_token: Optional Discord User Authorization Token for 100% headless automated addition
+    - open_browser: If true and no user_token, automatically opens the OAuth2 authorization page in default browser
+    """
+    bot_key = bot_name_or_id.strip().lower()
+    bot_info = BOT_CATALOG.get(bot_key)
+
+    if bot_info:
+        client_id = bot_info["id"]
+        bot_name = bot_info["name"]
+        perms = bot_info["permissions"]
+    else:
+        client_id = bot_name_or_id.strip()
+        bot_name = f"Bot ({client_id})"
+        perms = 8
+
+    async with httpx.AsyncClient() as client:
+        gid = await _resolve_guild_id(client, guild_id)
+
+        # 1. Check if user provided a Discord user token for headless OAuth2 authorization
+        token = user_token or os.getenv("DISCORD_USER_TOKEN", "").strip()
+        if token:
+            auth_headers = {
+                "Authorization": token,
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            }
+            auth_payload = {
+                "guild_id": gid,
+                "permissions": str(perms),
+                "authorize": True,
+            }
+            auth_resp = await client.post(
+                f"{DISCORD_API_BASE}/oauth2/authorize?client_id={client_id}&scope=bot%20applications.commands",
+                headers=auth_headers,
+                json=auth_payload,
+            )
+            if auth_resp.status_code in (200, 204):
+                return json.dumps({
+                    "status": "success",
+                    "mode": "headless_automatic",
+                    "bot_name": bot_name,
+                    "client_id": client_id,
+                    "guild_id": gid,
+                    "message": f"Successfully added {bot_name} to server {gid} headlessly!",
+                }, indent=2, ensure_ascii=False)
+
+        # 2. Generate 1-Click invite URL with pre-selected guild
+        invite_url = (
+            f"https://discord.com/oauth2/authorize?client_id={client_id}"
+            f"&scope=bot%20applications.commands&permissions={perms}&guild_id={gid}&disable_guild_select=true"
+        )
+
+        if open_browser:
+            try:
+                webbrowser.open(invite_url)
+            except Exception:
+                pass
+
+        return json.dumps({
+            "status": "success",
+            "mode": "1_click_authorization",
+            "bot_name": bot_name,
+            "client_id": client_id,
+            "guild_id": gid,
+            "invite_url": invite_url,
+            "browser_opened": open_browser,
+            "message": f"Invite URL generated for {bot_name}. Authorized window opened in browser!",
+        }, indent=2, ensure_ascii=False)
+
+
+@server.tool()
+async def discord_configure_bot(
+    bot_name_or_id: str,
+    guild_id: Optional[str] = None,
+    target_channel_id: Optional[str] = None,
+    setup_command: Optional[str] = None,
+) -> str:
+    """Configures an installed bot in the server:
+    1. Finds the bot among server members and assigns the '🤖 Bots' role
+    2. Grants specific channel permissions if target_channel_id is provided
+    3. Sends the initial setup command into the target channel
+    """
+    bot_key = bot_name_or_id.strip().lower()
+    bot_info = BOT_CATALOG.get(bot_key)
+    client_id = bot_info["id"] if bot_info else bot_name_or_id.strip()
+    bot_name = bot_info["name"] if bot_info else f"Bot {client_id}"
+    cmd = setup_command or (bot_info["default_command"] if bot_info else None)
+
+    async with httpx.AsyncClient() as client:
+        gid = await _resolve_guild_id(client, guild_id)
+
+        # 1. Assign '🤖 Bots' role
+        roles_resp = await client.get(f"{DISCORD_API_BASE}/guilds/{gid}/roles", headers=get_headers())
+        bot_role_id = None
+        if roles_resp.status_code == 200:
+            for r in roles_resp.json():
+                if "bot" in r.get("name", "").lower():
+                    bot_role_id = r["id"]
+                    break
+
+        role_assigned = False
+        if bot_role_id:
+            assign_resp = await client.put(
+                f"{DISCORD_API_BASE}/guilds/{gid}/members/{client_id}/roles/{bot_role_id}",
+                headers=get_headers(),
+            )
+            role_assigned = assign_resp.status_code in (200, 204)
+
+        # 2. Grant permissions on target channel
+        perms_set = False
+        if target_channel_id:
+            allow_flags = 1024 | 2048 | 16384 | 32768 | 65536
+            perm_payload = {
+                "id": client_id,
+                "type": 1,
+                "allow": str(allow_flags),
+                "deny": "0",
+            }
+            p_resp = await client.put(
+                f"{DISCORD_API_BASE}/channels/{target_channel_id.strip()}/permissions/{client_id}",
+                headers=get_headers(),
+                json=perm_payload,
+            )
+            perms_set = p_resp.status_code in (200, 204)
+
+        # 3. Send setup command into channel if requested
+        cmd_sent = False
+        if cmd and target_channel_id:
+            msg_resp = await client.post(
+                f"{DISCORD_API_BASE}/channels/{target_channel_id.strip()}/messages",
+                headers=get_headers(),
+                json={"content": cmd},
+            )
+            cmd_sent = msg_resp.status_code in (200, 201)
+
+        return json.dumps({
+            "status": "success",
+            "bot_name": bot_name,
+            "client_id": client_id,
+            "guild_id": gid,
+            "role_assigned": role_assigned,
+            "permissions_set": perms_set,
+            "setup_command_sent": cmd if cmd_sent else None,
+            "message": f"Configuration for {bot_name} completed!",
+        }, indent=2, ensure_ascii=False)
+
+
+@server.tool()
+async def discord_create_webhook(
+    channel_id: str,
+    name: str = "Antigravity Automated Bot",
+    avatar_url: Optional[str] = None,
+) -> str:
+    """Creates a Discord webhook in a channel. Used for automated stream alerts, tickets, and external feeds."""
+    payload: Dict[str, Any] = {"name": name}
+    if avatar_url:
+        payload["avatar"] = avatar_url
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{DISCORD_API_BASE}/channels/{channel_id.strip()}/webhooks",
+            headers=get_headers(),
+            json=payload,
+        )
+        if resp.status_code not in (200, 201):
+            return f"Error creating webhook: {resp.status_code} - {resp.text}"
+
+        data = resp.json()
+        return json.dumps({
+            "status": "success",
+            "webhook_id": data.get("id"),
+            "name": data.get("name"),
+            "channel_id": data.get("channel_id"),
+            "webhook_url": f"https://discord.com/api/webhooks/{data.get('id')}/{data.get('token')}",
+        }, indent=2)
+
+
+@server.tool()
+async def discord_send_as_bot(
+    channel_id: str,
+    bot_name: str,
+    content: str,
+    avatar_url: Optional[str] = None,
+    embed_title: Optional[str] = None,
+    embed_description: Optional[str] = None,
+    embed_color: Optional[str] = "#5865F2",
+) -> str:
+    """Sends a message or announcement disguised as ANY custom bot (Ticket Bot, TikTok Live Alert, Streamcord, AutoMod)
+    using an on-demand Discord Webhook.
+    """
+    async with httpx.AsyncClient() as client:
+        cid = channel_id.strip()
+        wh_resp = await client.get(f"{DISCORD_API_BASE}/channels/{cid}/webhooks", headers=get_headers())
+        webhook = None
+        if wh_resp.status_code == 200:
+            webhooks = wh_resp.json()
+            for w in webhooks:
+                if w.get("name") == bot_name:
+                    webhook = w
+                    break
+            if not webhook and webhooks:
+                webhook = webhooks[0]
+
+        if not webhook:
+            create_resp = await client.post(
+                f"{DISCORD_API_BASE}/channels/{cid}/webhooks",
+                headers=get_headers(),
+                json={"name": bot_name},
+            )
+            if create_resp.status_code in (200, 201):
+                webhook = create_resp.json()
+            else:
+                return f"Error creating bot webhook: {create_resp.status_code} - {create_resp.text}"
+
+        wh_url = f"https://discord.com/api/webhooks/{webhook['id']}/{webhook['token']}"
+        wh_payload: Dict[str, Any] = {
+            "username": bot_name,
+            "content": content,
+        }
+        if avatar_url:
+            wh_payload["avatar_url"] = avatar_url
+
+        if embed_title or embed_description:
+            embed = {
+                "title": embed_title or "",
+                "description": embed_description or "",
+                "color": parse_color(embed_color),
+            }
+            wh_payload["embeds"] = [embed]
+
+        exec_resp = await client.post(wh_url, json=wh_payload)
+        if exec_resp.status_code not in (200, 204):
+            return f"Error sending message as bot: {exec_resp.status_code} - {exec_resp.text}"
+
+        return json.dumps({
+            "status": "success",
+            "bot_name": bot_name,
+            "channel_id": cid,
+            "content": content,
+            "embed_title": embed_title,
+        }, indent=2, ensure_ascii=False)
+
+
+@server.tool()
+async def discord_send_bot_command(channel_id: str, command: str) -> str:
+    """Sends a bot configuration command (e.g. '$setup', '!pingcord', '!gcreate') into a Discord channel."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{DISCORD_API_BASE}/channels/{channel_id.strip()}/messages",
+            headers=get_headers(),
+            json={"content": command.strip()},
+        )
+        if resp.status_code not in (200, 201):
+            return f"Error sending bot command: {resp.status_code} - {resp.text}"
+
+        msg = resp.json()
+        return json.dumps({
+            "status": "success",
+            "command_sent": command,
+            "channel_id": channel_id,
+            "message_id": msg["id"],
+        }, indent=2)
+
+
+# ----------------------------------------------------------------------
 # ENTRYPOINT
 # ----------------------------------------------------------------------
 
 if __name__ == "__main__":
     # Runs the stdio MCP server for Antigravity
     server.run(transport="stdio")
+
