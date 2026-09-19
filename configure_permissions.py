@@ -73,8 +73,10 @@ async def main():
         # 1. Resolve guild
         resp = await client.get(f"{DISCORD_API_BASE}/users/@me/guilds", headers=HEADERS)
         guilds = resp.json()
-        guild_id = guilds[0]["id"]
+        target_guild = next((g for g in guilds if "Panos" in g.get("name", "") or g.get("id") == "1550519974559486074"), guilds[0])
+        guild_id = target_guild["id"]
         everyone_id = guild_id
+        print(f"🎯 Target Server: {target_guild.get('name')} (ID: {guild_id})")
 
         # 2. Fetch roles
         r_resp = await client.get(f"{DISCORD_API_BASE}/guilds/{guild_id}/roles", headers=HEADERS)
@@ -99,8 +101,8 @@ async def main():
             cname = ch["name"]
             ctype = ch["type"]
 
-            # --- A. READ-ONLY CHANNELS (κανόνες, ανακοινώσεις, tiktok-feed) ---
-            if any(k in cname for k in ["κανόνες", "ανακοινώσεις", "tiktok-feed"]):
+            # --- A. READ-ONLY CHANNELS (κανόνες, ανακοινώσεις, tiktok-feed, άνοιγμα-ticket, live-alerts) ---
+            if any(k in cname for k in ["κανόνες", "ανακοινώσεις", "tiktok-feed", "άνοιγμα-ticket", "live-alerts"]):
                 print(f"📌 Ρύθμιση Read-Only για #{cname}...")
                 # @everyone: Can view & read history, cannot send messages or create threads
                 deny_flags = SEND_MESSAGES | CREATE_PUBLIC_THREADS | CREATE_PRIVATE_THREADS | SEND_MESSAGES_IN_THREADS
